@@ -13,8 +13,27 @@ def initialize_db(db_path):
     # Crear tabla de artículos
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS articles (
-            paper_id TEXT PRIMARY KEY,
-            article TEXT
+            paper_id TEXT PRIMARY ,
+            title TEXT            
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sections (
+            section_id INTEGER PRIMARY KEY, 
+            paper_id TEXT,
+            section_name TEXT,                       
+            FOREIGN KEY (paper_id) REFERENCES articles (paper_id)            
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sections_refs (
+            ref INTEGER PRIMARY KEY, 
+            section_id INTEGER,
+            ref_target TEXT,
+            exists INTEGER,                       
+            FOREIGN KEY (section_id) REFERENCES sections (section_id)            
         )
     ''')
 
@@ -40,12 +59,12 @@ def initialize_db(db_path):
     conn.commit()
     return conn
 
-def save_article_to_db(conn, paper_id, article):
+def save_article_to_db(conn, paper_id, title):
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO articles (paper_id, article)
+        INSERT OR REPLACE INTO articles (paper_id, title)
         VALUES (?, ?)
-    ''', (paper_id, json.dumps(article)))
+    ''', (paper_id, title))
     conn.commit()
 
 def process_subset(subset_dir, db_path):
@@ -68,7 +87,7 @@ def process_subset(subset_dir, db_path):
                     for line in f:
                         article = json.loads(line)
                         paper_id = article.get("paper_id")
-                        save_article_to_db(conn, paper_id, article)
+                        save_article_to_db(conn, paper_id, article.get("title"))
                         paper_count += 1
 
     # Marcar la base de datos como inicializada
