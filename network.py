@@ -2,7 +2,7 @@ import argparse
 import json
 import os
 import networkx as nx
-
+import pickle
 
 def build_citation_network(subset_dir, remove_empty_nodes=False):
     """
@@ -41,7 +41,6 @@ def build_citation_network(subset_dir, remove_empty_nodes=False):
 
     return G
 
-
 def export_network(G, output_path, output_format='gexf'):
     """
     Exports the citation network to a specified format.
@@ -49,7 +48,7 @@ def export_network(G, output_path, output_format='gexf'):
     Parameters:
     G (networkx.DiGraph): The citation network as a directed graph.
     output_path (str): The path to save the exported network.
-    format (str): The format to export the network ('gexf', 'graphml', 'edgelist', 'adjlist').
+    format (str): The format to export the network ('gexf', 'graphml', 'edgelist', 'adjlist', 'pickle').
     """
     if output_format == 'gexf':
         nx.write_gexf(G, output_path)
@@ -59,9 +58,11 @@ def export_network(G, output_path, output_format='gexf'):
         nx.write_edgelist(G, output_path)
     elif output_format == 'adjlist':
         nx.write_adjlist(G, output_path)
+    elif output_format == 'pickle':
+        with open(output_path, 'wb') as f:
+            pickle.dump(G, f)
     else:
-        raise ValueError("Unsupported format. Choose from 'gexf', 'graphml', 'edgelist', 'adjlist'.")
-
+        raise ValueError("Unsupported format. Choose from 'gexf', 'graphml', 'edgelist', 'adjlist', 'pickle'.")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -69,15 +70,14 @@ def main():
     parser.add_argument('subset_directory', type=str, help="The directory containing the subset JSONL files.")
     parser.add_argument('output_path', type=str, help="The path to save the exported network.")
     parser.add_argument('--format', type=str, default='gexf',
-                        choices=['gexf', 'graphml', 'edgelist', 'adjlist'],
-                        help="The format to export the network ('gexf', 'graphml', 'edgelist', 'adjlist'). Default is 'gexf'.")
+                        choices=['gexf', 'graphml', 'edgelist', 'adjlist', 'pickle'],
+                        help="The format to export the network ('gexf', 'graphml', 'edgelist', 'adjlist', 'pickle'). Default is 'gexf'.")
     parser.add_argument('--remove_empty_nodes', action='store_true', help="Remove nodes without title, year, or references.")
 
     args = parser.parse_args()
 
     G = build_citation_network(args.subset_directory, args.remove_empty_nodes)
     export_network(G, args.output_path, args.format)
-
 
 if __name__ == "__main__":
     main()
