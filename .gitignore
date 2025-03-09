@@ -1,3 +1,10 @@
-
-/.idea
-/output
+/unarXive_230324_open_subset/
+/output/
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/.gitignore
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/pythonProject.iml
+/.idea/sqldialects.xml
+/.idea/vcs.xml
+/.idea/webResources.xml

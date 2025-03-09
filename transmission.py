@@ -1,164 +1,129 @@
-import sqlite3
+import argparse
 import os
 import json
-import argparse
-import networkx as nx
-from models.pagerank import PageRank
-from models.gozinto import Gozinto
+import concurrent.futures
+import threading
+import networkdisk as nd
 
-def initialize_db(db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+lock = threading.Lock()
+node_count = 0
 
-    # Crear tabla de artículos
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS articles (
-            paper_id TEXT PRIMARY ,
-            title TEXT            
-        )
-    ''')
+def process_file(file_path, graph):
+    global node_count
+    with open(file_path, 'r') as f:
+        for line in f:
+            article = json.loads(line)
+            paper_id = article.get("paper_id")
 
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS sections (
-            section_id INTEGER PRIMARY KEY, 
-            paper_id TEXT,
-            section_name TEXT,                       
-            FOREIGN KEY (paper_id) REFERENCES articles (paper_id)            
-        )
-    ''')
+            with lock:
+                # Comprobar si el nodo del paper ya existe y tiene los atributos necesarios
+                if not graph.has_node(paper_id) or not all(
+                        attr in graph.nodes[paper_id] for attr in ['title', 'year', 'authors', 'doi']):
+                    title = article.get("title")
+                    year = article.get("year")
+                    authors = article.get("authors")
+                    doi = article.get("doi")
 
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS sections_refs (
-            ref INTEGER PRIMARY KEY, 
-            section_id INTEGER,
-            ref_target TEXT,
-            exists INTEGER,                       
-            FOREIGN KEY (section_id) REFERENCES sections (section_id)            
-        )
-    ''')
+                    # Añadir nodo del artículo con atributos
+                    graph.add_node(paper_id, title=title, year=year, authors=authors, doi=doi)
+                    node_count += 1
 
-    # Crear tabla de valores de modelos
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS model_values (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            paper_id TEXT,
-            model_name TEXT,
-            value REAL,
-            FOREIGN KEY (paper_id) REFERENCES articles (paper_id)
-        )
-    ''')
+                    # Imprimir marca cada 10,000 nodos
+                    if node_count % 10000 == 0:
+                        print(f"Se han procesado {node_count} nodos.")
 
-    # Crear tabla de metadatos
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    ''')
-
-    conn.commit()
-    return conn
-
-def save_article_to_db(conn, paper_id, title):
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT OR REPLACE INTO articles (paper_id, title)
-        VALUES (?, ?)
-    ''', (paper_id, title))
-    conn.commit()
-
-def process_subset(subset_dir, db_path):
-    conn = initialize_db(db_path)
-    cursor = conn.cursor()
-
-    # Verificar si los artículos ya han sido insertados
-    cursor.execute('SELECT value FROM metadata WHERE key = "initialized"')
-    result = cursor.fetchone()
-    if result and result[0] == 'true':
-        print("La base de datos ya ha sido inicializada.")
-        conn.close()
-        return
-
-    paper_count = 0
-    for root, _, files in os.walk(subset_dir):
-        for file in files:
-            if file.endswith('.jsonl'):
-                with open(os.path.join(root, file), 'r') as f:
-                    for line in f:
-                        article = json.loads(line)
-                        paper_id = article.get("paper_id")
-                        save_article_to_db(conn, paper_id, article.get("title"))
-                        paper_count += 1
-
-    # Marcar la base de datos como inicializada
-    cursor.execute('''
-        INSERT OR REPLACE INTO metadata (key, value)
-        VALUES ("initialized", "true")
-    ''')
-    conn.commit()
-    conn.close()
-
-def save_model_value_to_db(conn, paper_id, model_name, value):
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO model_values (paper_id, model_name, value)
-        VALUES (?, ?, ?)
-    ''', (paper_id, model_name, value))
-    conn.commit()
-
-def calculate_and_save_model_values(conn, models):
-    cursor = conn.cursor()
-    cursor.execute('SELECT paper_id, article FROM articles')
-    while True:
-        rows = cursor.fetchmany(1000)  # Procesar en lotes de 1000 filas
-        if not rows:
-            break
-
-        for paper_id, article_json in rows:
-            article = json.loads(article_json)
-            for model_name, model in models.items():
-                value = model.get_transmission_value(paper_id)
-                save_model_value_to_db(conn, paper_id, model_name, value)
-
-def build_graph_from_db(db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('SELECT paper_id, article FROM articles')
-    graph = nx.DiGraph()
-
-    while True:
-        rows = cursor.fetchmany(1000)  # Procesar en lotes de 1000 filas
-        if not rows:
-            break
-
-        for paper_id, article_json in rows:
-            article = json.loads(article_json)
-            graph.add_node(paper_id)
             sections = article.get("sections", [])
             for section in sections:
+                section_name = section.get("section_name")
+                section_id = f"{paper_id}_{section_name}"
+
+                with lock:
+                    # Añadir nodo de la sección con atributos
+                    graph.add_node(section_id, paper_id=paper_id, section_name=section_name)
+                    node_count += 1
+
+                    # Imprimir marca cada 10,000 nodos
+                    if node_count % 10000 == 0:
+                        print(f"Se han procesado {node_count} nodos.")
+
+                # Aquí puedes calcular y guardar el peso de la sección
+                weight = calculate_section_weight(section)
+                graph.nodes[section_id]['weight'] = weight
+
                 paragraphs = section.get("paragraphs", [])
                 for paragraph in paragraphs:
                     cited_references = paragraph.get("cited_references", [])
                     for ref in cited_references:
                         ref_id = ref.get("arxiv_id")
-                        if ref_id:  # Ensure the reference is not empty
-                            graph.add_edge(paper_id, ref_id)
+                        if ref_id:
+                            with lock:
+                                graph.add_edge(paper_id, ref_id)
 
-    conn.close()
-    return graph
+                    external_uris = paragraph.get("external_uris", [])
+                    for uri in external_uris:
+                        with lock:
+                            graph.add_node(uri, section_id=section_id)
+                            node_count += 1
+
+                            # Imprimir marca cada 10,000 nodos
+                            if node_count % 10000 == 0:
+                                print(f"Se han procesado {node_count} nodos.")
+
+            # Liberar memoria eliminando referencias a objetos grandes
+            del article
+            del sections
+            del paragraphs
+
+def process_subset(subset_dir, graph_db_path):
+    marker_file = ".dataset_finished"
+
+    # Verificar si el archivo de marca existe
+    if os.path.exists(marker_file):
+        print("El dataset ya ha sido procesado anteriormente.")
+        return
+
+    # Crear un grafo en disco
+    graph = nd.sqlite.Graph(db=graph_db_path)
+
+    files = [os.path.join(root, file)
+             for root, _, files in os.walk(subset_dir)
+             for file in files if file.endswith('.jsonl')]
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [executor.submit(process_file, file, graph) for file in files]
+        for future in concurrent.futures.as_completed(futures):
+            future.result()  # Para capturar excepciones si las hay
+
+    # Crear el archivo de marca
+    with open(marker_file, 'w') as f:
+        f.write("Dataset procesado")
+
+    # Cerrar el grafo para liberar recursos
+    graph.close()
+
+def calculate_section_weight(section):
+    # Implementa la lógica para calcular el peso de la sección
+    return 1.0  # Ejemplo de peso fijo
+
+def calculate_and_save_model_values(graph, models):
+    for paper_id in graph.nodes:
+        if 'title' in graph.nodes[paper_id]:  # Verificar si es un nodo de artículo
+            for model_name, model in models.items():
+                value = model.get_transmission_value(paper_id)
+                graph.nodes[paper_id][model_name] = value
 
 def main():
     parser = argparse.ArgumentParser(description="Process a subset of papers and calculate model values.")
     parser.add_argument('subset_directory', type=str, help="The directory containing the subset JSONL files.")
-    parser.add_argument('db_path', type=str, help="The path to the SQLite database file.")
+    parser.add_argument('graph_db_path', type=str, help="The path to the graph database file.")
 
     args = parser.parse_args()
 
-    # Procesar el subdirectorio y guardar artículos en la base de datos
-    process_subset(args.subset_directory, args.db_path)
+    # Procesar el subdirectorio y guardar artículos en el grafo
+    process_subset(args.subset_directory, args.graph_db_path)
 
     # Inicializar modelos
-    graph = build_graph_from_db(args.db_path)
+    graph = nd.DiGraph(args.graph_db_path)
     models = {
         'pagerank': PageRank(graph),
         'gozinto': Gozinto(graph),
@@ -166,9 +131,10 @@ def main():
     }
 
     # Calcular y guardar valores de modelos
-    conn = sqlite3.connect(args.db_path)
-    calculate_and_save_model_values(conn, models)
-    conn.close()
+    calculate_and_save_model_values(graph, models)
+
+    # Cerrar el grafo para liberar recursos
+    graph.close()
 
 if __name__ == "__main__":
     main()
