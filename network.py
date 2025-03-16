@@ -6,7 +6,7 @@ import pickle
 
 def build_citation_network(subset_dir, remove_empty_nodes=False):
     """
-    Builds a citation network from the subset of papers.
+    Builds a citation network from the subset of papers and adds section information.
 
     Parameters:
     subset_dir (str): The directory containing the subset JSONL files.
@@ -28,12 +28,25 @@ def build_citation_network(subset_dir, remove_empty_nodes=False):
                         year = paper.get("year")
                         G.add_node(paper_id, title=title, year=year)
 
-                        for section in paper.get("sections", []):
+                        sections = paper.get("sections", [])
+                        section_info = []
+                        for section in sections:
+                            section_name = section.get("section_name")
+                            external_uris = set()
+                            cited_references = set()
                             for paragraph in section.get("paragraphs", []):
+                                external_uris.update(paragraph.get("external_uris", []))
                                 for ref in paragraph.get("cited_references", []):
                                     arxiv_id = ref.get("arxiv_id")
                                     if arxiv_id:
+                                        cited_references.add(arxiv_id)
                                         G.add_edge(paper_id, arxiv_id)
+                            section_info.append({
+                                "section_name": section_name,
+                                "external_uris": list(external_uris),
+                                "cited_references": list(cited_references)
+                            })
+                        G.nodes[paper_id]['sections'] = section_info
 
     if remove_empty_nodes:
         nodes_to_remove = [node for node, data in G.nodes(data=True) if not data.get("title") or not data.get("year")]
