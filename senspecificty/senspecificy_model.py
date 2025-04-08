@@ -1,9 +1,9 @@
 import networkx as nx
-from models.abstract_transmission import AbstractTransmission
+
 from relevance.database import Database
 
 
-class SpecificitySensitivityModel(AbstractTransmission):
+class SpecificitySensitivityModel:
     """
     Specificity and Sensitivity relevance model.
     """
@@ -61,3 +61,6 @@ class SpecificitySensitivityModel(AbstractTransmission):
         self.P_X0_S1 = non_cited_papers_all_alive_references / total_papers
         self.P_X1_S1 = cited_papers_all_alive_references / total_papers
         self.P_X0_S0 = non_cited_papers_dead_references / total_papers
+
+    def get_probabilities(self):
+        return self.P_X1, self.P_X0, self.P_X0_S1, self.P_X1_S1, self.P_X1_S0, self.P_X0_S0

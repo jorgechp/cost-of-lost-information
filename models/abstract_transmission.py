@@ -11,17 +11,19 @@ RSTRIP_URL_CHARACTERS = '),].'  # Characters to strip from the end of a URL
 
 class AbstractTransmission(ABC):
 
-    def __init__(self):
+    def __init__(self, affected_nodes: list):
         """
-        Initialize the transmission model.
+        Initialize the relevance model.
 
         """
         self._nodes_value = dict()
+        self.affected_nodes = affected_nodes
+        self.transmission_values = {}
 
     @abstractmethod
-    def compute_transmission_values(self):
+    def compute_relevance_values(self):
         """
-        Compute the transmission values for all nodes in the graph.
+        Compute the relevance values for all nodes in the graph.
 
         """
         raise NotImplementedError
@@ -29,13 +31,13 @@ class AbstractTransmission(ABC):
     @abstractmethod
     def get_transmission_value(self, node):
         """
-        Get the transmission value of a node.
+        Get the relevance value of a node.
 
         Parameters:
         node (str): The node ID.
 
         Returns:
-        value (float): The transmission value of the node.
+        value (float): The relevance value of the node.
         """
         raise NotImplementedError
 
@@ -68,3 +70,44 @@ class AbstractTransmission(ABC):
             return response.status_code in [200, 301, 302, 418]
         except requests.RequestException:
             return False
+
+    def compute_affectation(self):
+        """
+        Compute the affectation levels for all nodes in the graph.
+
+        Parameters:
+        affected_nodes (list): List of nodes that are directly affected.
+
+        Returns:
+        dict: A dictionary with nodes as keys and their affectation levels as values.
+        """
+        affectation = {node: 0 for node in self.graph.nodes}
+
+        # Initialize affectation for directly affected nodes
+        for node in self.affected_nodes:
+            affectation[node] = 1
+
+        # Propagate affectation through the graph
+        for node in sorted(self.graph.nodes, key=lambda n: self.transmission_values[n], reverse=True):
+            for neighbor in self.graph.predecessors(node):
+                affectation[neighbor] += affectation[node] * self.transmission_values[neighbor]
+
+        return affectation
+
+    def get_transmission_value(self, node):
+        """
+        Get the Sensitivity and Specificity values of a node.
+
+        Parameters:
+        node (str): The node ID.
+
+        Returns:
+        value (dict): The Sensitivity and Specificity values of the node.
+        """
+        return self.transmission_values[node]
+
+    def get_transmission_values(self):
+        """
+        Get the Sensitivity and Specificity values of all nodes.
+        """
+        return self.transmission_values

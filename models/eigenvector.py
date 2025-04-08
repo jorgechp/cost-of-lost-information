@@ -1,29 +1,29 @@
 import networkx as nx
 from models.abstract_transmission import AbstractTransmission
 
+
 class EigenvectorCentrality(AbstractTransmission):
     """
-    Eigenvector Centrality transmission model.
+    Eigenvector Centrality relevance model.
     """
 
-    def __init__(self, graph: nx.DiGraph):
+    def __init__(self, graph: nx.DiGraph, affected_nodes: list):
         """
-        Initialize the Eigenvector Centrality transmission model.
+        Initialize the Eigenvector Centrality relevance model.
 
         Parameters:
         graph (DiGraph): The directed graph.
         """
+        super().__init__(affected_nodes)
         self.graph = graph
-        self.transmission_values = nx.eigenvector_centrality(self.graph)
 
-    def get_transmission_value(self, node):
+
+
+    def compute_relevance_values(self):
         """
-        Get the eigenvector centrality value of a node.
-
-        Parameters:
-        node (str): The node ID.
+        Calculate the eigenvector centrality values for all nodes in the graph.
 
         Returns:
-        value (float): The eigenvector centrality value of the node.
+        dict: A dictionary with nodes as keys and their eigenvector centrality values as values.
         """
-        return self.transmission_values[node]
+        self.transmission_values = nx.eigenvector_centrality(self.graph)

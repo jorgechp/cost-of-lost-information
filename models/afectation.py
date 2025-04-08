@@ -3,12 +3,12 @@ from models.abstract_transmission import AbstractTransmission
 
 class AffectationTransmission(AbstractTransmission):
     """
-    Affectation transmission model.
+    Affectation relevance model.
     """
 
     def __init__(self, graph: nx.DiGraph, section_weights, threshold=0.5):
         """
-        Initialize the Affectation transmission model.
+        Initialize the Affectation relevance model.
 
         Parameters:
         graph (DiGraph): The directed graph.

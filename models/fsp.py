@@ -1,24 +1,26 @@
 import networkx as nx
 from models.abstract_transmission import AbstractTransmission
 
+
 class FSPC(AbstractTransmission):
     """
-    Forward Search Path Count (FSPC) transmission model.
+    Forward Search Path Count (FSPC) relevance model.
     """
 
-    def __init__(self, graph: nx.DiGraph, phi=lambda k: 1.0 / (k + 1), K=3):
+    def __init__(self, graph: nx.DiGraph, affected_nodes: list, phi=lambda k: 1.0 / (k + 1), K=3):
         """
-        Initialize the FSPC transmission model.
+        Initialize the FSPC relevance model.
 
         Parameters:
         graph (DiGraph): The directed graph.
         phi (function): The decay factor function.
         K (int): The maximum path length to consider.
         """
+        super().__init__(affected_nodes)
         self.graph = graph
         self.phi = phi
         self.K = K
-        self.transmission_values = self.calculate_fspc_values()
+
 
     def calculate_fspc_values(self):
         """
@@ -32,7 +34,7 @@ class FSPC(AbstractTransmission):
         for node in self.graph.nodes:
             fspc_values[node] = self.calculate_node_fspc(node)
 
-        return fspc_values
+        self.transmission_values = fspc_values
 
     def calculate_node_fspc(self, node):
         """
@@ -44,6 +46,7 @@ class FSPC(AbstractTransmission):
         Returns:
         value (float): The FSPC value of the node.
         """
+
         def dfs(v, depth):
             if depth > self.K:
                 return 0
@@ -54,14 +57,10 @@ class FSPC(AbstractTransmission):
 
         return dfs(node, 1)
 
-    def get_transmission_value(self, node):
-        """
-        Get the FSPC value of a node.
 
-        Parameters:
-        node (str): The node ID.
+    def compute_relevance_values(self):
+        self.calculate_fspc_values()
 
-        Returns:
-        value (float): The FSPC value of the node.
-        """
-        return self.transmission_values[node]
+
+
+
