@@ -48,7 +48,7 @@ def get_citing_works(openalex_id):
                     "publication_year": item.get('publication_year', 'Unknown')
                 })
             cursor = data['meta'].get('next_cursor')
-            time.sleep(1)
+            time.sleep(0.15)
         else:
             print(f"Error fetching citations for ID: {openalex_id}")
             break
