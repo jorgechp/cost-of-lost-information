@@ -1,3 +1,6 @@
+from economics.economic_loss_model import EconomicLossModel
+
+
 class OpportunityCostModel(EconomicLossModel):
     def __init__(self, data, po, ik):
         super().__init__(data)

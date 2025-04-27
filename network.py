@@ -25,8 +25,9 @@ def build_citation_network(subset_dir, remove_empty_nodes=False):
                         paper = json.loads(line)
                         paper_id = paper.get("paper_id")
                         title = paper.get("title")
+                        authors = paper.get("authors")
                         year = paper.get("year")
-                        G.add_node(paper_id, title=title, year=year)
+                        G.add_node(paper_id, title=title, year=year, authors=authors)
 
                         sections = paper.get("sections", [])
                         section_info = []
