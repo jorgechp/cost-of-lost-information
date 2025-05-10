@@ -121,7 +121,7 @@ def extract_subset(input_dir, output_dir, include_text, arxiv_only):
                         subset = {
                             "paper_id": paper.get("paper_id"),
                             "title": paper.get("metadata", {}).get("title"),
-                            "authors": paper.get("metadata", {}).get("authors"),
+                            "authors": paper.get("metadata", {}).get("authors_parsed"),
                             "year": year,
                             "doi": paper.get("metadata", {}).get("doi"),
                             "sections": sections
