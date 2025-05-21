@@ -97,13 +97,14 @@ def main():
     print(f"Total papers: {nt}, Non-reproducible: {nnr}")
 
     unique_authors = set()
-    for author_parts in data.get("authors", []):
-        if isinstance(author_parts, list):
-            # Filtra elementos vacíos y une con espacio
-            author_name = " ".join(part for part in author_parts if part)
-            unique_authors.add(author_name)
-        else:
-            unique_authors.add(str(author_parts))
+    for _, data in graph.nodes(data=True):
+        for author_parts in data.get("authors", []):
+            if isinstance(author_parts, list):
+                # Filtra elementos vacíos y une con espacio
+                author_name = " ".join(part for part in author_parts if part)
+                unique_authors.add(author_name)
+            else:
+                unique_authors.add(str(author_parts))
 
     L = len(unique_authors)
 
