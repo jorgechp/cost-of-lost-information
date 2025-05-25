@@ -490,7 +490,6 @@ def plot_gozinto_impact_by_depth(graph, impact_gozinto, affected_nodes, output_p
 def main():
     parser = argparse.ArgumentParser(description="Transmission models for citation network.")
     parser.add_argument('pickle_path', type=str, help="The path to the pickle file containing the graph.")
-    parser.add_argument('-s', type=int, dest='steps', help="Number of steps")
 
     args = parser.parse_args()
 

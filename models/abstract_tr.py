@@ -84,7 +84,8 @@ class TrModel():
             next_level_nodes = set()
 
             for node in current_level_nodes:
-                alt_node = node.split('.')
+                node_str = str(node)
+                alt_node = node_str.split('.')
                 if len(alt_node) == 2:
                     while alt_node[1][0] == '0':
                         alt_node[1] = alt_node[1][1:]
@@ -93,8 +94,8 @@ class TrModel():
                     alt_node_str = f"{alt_node[0]}.{alt_node[1]}"
                 if node in self.graph:
                     def_node = node
-                elif alt_node_str in self.graph:
-                    def_node = alt_node_str
+                elif node_str in self.graph:
+                    def_node = node_str
                     affected_nodes.remove(node)
                     affected_nodes.append(def_node)
                 else:
