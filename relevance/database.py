@@ -67,7 +67,7 @@ class Database:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS sections (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                paper_id INTEGER NOT NULL,
+                paper_id TEXT NOT NULL,
                 section_title TEXT NOT NULL
             )
         ''')
