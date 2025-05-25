@@ -6,13 +6,10 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from scipy.optimize import minimize
 
 from gozinto.gozinto_loss import GozintoModel
 from models.abstract_tr import TrModel
 from relevance.database import Database
-from sais.sais_model import SAISModel
-from transmission.affectation_transmission_model import AffectationTransmissionModel
 
 
 def fill_nodes_information(graph, history, beta, gamma, delta):

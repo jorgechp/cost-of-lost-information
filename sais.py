@@ -1,14 +1,12 @@
 import argparse
 import seaborn as sns
 import numpy as np
-import numpy as np
 from matplotlib import pyplot as plt
 from scipy.optimize import minimize
 
 from models.abstract_tr import TrModel
 from relevance.database import Database
 from sais.sais_model import SAISModel
-from transmission.affectation_transmission_model import AffectationTransmissionModel
 
 
 def error_function(params, tr_model, affected_nodes, affected_levels, steps):
