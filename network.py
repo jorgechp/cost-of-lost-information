@@ -1,97 +1,245 @@
+"""
+Citation Network Builder
+======================
+
+This module builds and exports citation networks from academic paper data stored
+in JSONL format. It processes paper metadata and citation relationships,
+creating a directed graph representation of the citation network.
+
+Features:
+---------
+- Build citation networks from JSONL files
+- Process paper metadata and section information
+- Support multiple export formats
+- Handle external references and URIs
+- Optional removal of incomplete entries
+
+Required Dependencies:
+--------------------
+- networkx
+- json
+"""
+
 import argparse
 import json
 import os
 import networkx as nx
 import pickle
+from typing import Dict, Optional
 
-def build_citation_network(subset_dir, remove_empty_nodes=False):
-    """
-    Builds a citation network from the subset of papers and adds section information.
 
-    Parameters:
-    subset_dir (str): The directory containing the subset JSONL files.
-    remove_empty_nodes (bool): Whether to remove nodes without title, year, or references.
+class CitationNetworkBuilder:
+    """Builder for citation networks from academic paper data."""
 
-    Returns:
-    G (networkx.DiGraph): The citation network as a directed graph.
-    """
-    G = nx.DiGraph()
+    def __init__(self, remove_empty_nodes: bool = False):
+        """
+        Initialize the network builder.
 
-    for root, _, files in os.walk(subset_dir):
-        for file in files:
-            if file.endswith('.jsonl'):
-                with open(os.path.join(root, file), 'r') as f:
-                    for line in f:
+        Args:
+            remove_empty_nodes: Whether to remove incomplete entries
+        """
+        self.graph = nx.DiGraph()
+        self.remove_empty_nodes = remove_empty_nodes
+
+    def process_paper(self, paper: Dict) -> None:
+        """
+        Process a single paper and add it to the network.
+
+        Args:
+            paper: Dictionary containing paper metadata
+        """
+        paper_id = paper.get("paper_id")
+        if not paper_id:
+            return
+
+        # Add basic paper metadata
+        self.graph.add_node(
+            paper_id,
+            title=paper.get("title"),
+            year=paper.get("year"),
+            authors=paper.get("authors")
+        )
+
+        # Process sections and citations
+        sections = []
+        for section in paper.get("sections", []):
+            section_data = self._process_section(paper_id, section)
+            if section_data:
+                sections.append(section_data)
+
+        self.graph.nodes[paper_id]['sections'] = sections
+
+    def _process_section(self, paper_id: str, section: Dict) -> Optional[Dict]:
+        """
+        Process a paper section and its citations.
+
+        Args:
+            paper_id: ID of the paper
+            section: Section metadata
+
+        Returns:
+            Processed section data or None if invalid
+        """
+        section_name = section.get("section_name")
+        if not section_name:
+            return None
+
+        external_uris = set()
+        cited_references = set()
+
+        for paragraph in section.get("paragraphs", []):
+            external_uris.update(paragraph.get("external_uris", []))
+
+            for ref in paragraph.get("cited_references", []):
+                if arxiv_id := ref.get("arxiv_id"):
+                    cited_references.add(arxiv_id)
+                    self.graph.add_edge(paper_id, arxiv_id)
+
+        return {
+            "section_name": section_name,
+            "external_uris": list(external_uris),
+            "cited_references": list(cited_references)
+        }
+
+    def build_from_directory(self, directory: str) -> nx.DiGraph:
+        """
+        Build citation network from all JSONL files in a directory.
+
+        Args:
+            directory: Path to directory containing JSONL files
+
+        Returns:
+            Built citation network as NetworkX DiGraph
+
+        Raises:
+            FileNotFoundError: If directory doesn't exist
+        """
+        if not os.path.exists(directory):
+            raise FileNotFoundError(f"Directory not found: {directory}")
+
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.endswith('.jsonl'):
+                    self._process_file(os.path.join(root, file))
+
+        if self.remove_empty_nodes:
+            self._clean_network()
+
+        return self.graph
+
+    def _process_file(self, filepath: str) -> None:
+        """
+        Process a single JSONL file.
+
+        Args:
+            filepath: Path to JSONL file
+        """
+        try:
+            with open(filepath, 'r') as f:
+                for line in f:
+                    try:
                         paper = json.loads(line)
-                        paper_id = paper.get("paper_id")
-                        title = paper.get("title")
-                        authors = paper.get("authors")
-                        year = paper.get("year")
-                        G.add_node(paper_id, title=title, year=year, authors=authors)
+                        self.process_paper(paper)
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            print(f"Error processing file {filepath}: {str(e)}")
 
-                        sections = paper.get("sections", [])
-                        section_info = []
-                        for section in sections:
-                            section_name = section.get("section_name")
-                            external_uris = set()
-                            cited_references = set()
-                            for paragraph in section.get("paragraphs", []):
-                                external_uris.update(paragraph.get("external_uris", []))
-                                for ref in paragraph.get("cited_references", []):
-                                    arxiv_id = ref.get("arxiv_id")
-                                    if arxiv_id:
-                                        cited_references.add(arxiv_id)
-                                        G.add_edge(paper_id, arxiv_id)
-                            section_info.append({
-                                "section_name": section_name,
-                                "external_uris": list(external_uris),
-                                "cited_references": list(cited_references)
-                            })
-                        G.nodes[paper_id]['sections'] = section_info
+    def _clean_network(self) -> None:
+        """Remove nodes with missing essential data."""
+        nodes_to_remove = [
+            node for node, data in self.graph.nodes(data=True)
+            if not data.get("title") or not data.get("year")
+        ]
+        self.graph.remove_nodes_from(nodes_to_remove)
 
-    if remove_empty_nodes:
-        nodes_to_remove = [node for node, data in G.nodes(data=True) if not data.get("title") or not data.get("year")]
-        G.remove_nodes_from(nodes_to_remove)
 
-    return G
+class NetworkExporter:
+    """Handles export of citation networks to various formats."""
 
-def export_network(G, output_path, output_format='gexf'):
-    """
-    Exports the citation network to a specified format.
+    SUPPORTED_FORMATS = {
+        'gexf': nx.write_gexf,
+        'graphml': nx.write_graphml,
+        'edgelist': nx.write_edgelist,
+        'adjlist': nx.write_adjlist,
+    }
 
-    Parameters:
-    G (networkx.DiGraph): The citation network as a directed graph.
-    output_path (str): The path to save the exported network.
-    format (str): The format to export the network ('gexf', 'graphml', 'edgelist', 'adjlist', 'pickle').
-    """
-    if output_format == 'gexf':
-        nx.write_gexf(G, output_path)
-    elif output_format == 'graphml':
-        nx.write_graphml(G, output_path)
-    elif output_format == 'edgelist':
-        nx.write_edgelist(G, output_path)
-    elif output_format == 'adjlist':
-        nx.write_adjlist(G, output_path)
-    elif output_format == 'pickle':
-        with open(output_path, 'wb') as f:
-            pickle.dump(G, f)
-    else:
-        raise ValueError("Unsupported format. Choose from 'gexf', 'graphml', 'edgelist', 'adjlist', 'pickle'.")
+    @classmethod
+    def export(cls, graph: nx.DiGraph, output_path: str,
+               format: str = 'gexf') -> None:
+        """
+        Export network to specified format.
+
+        Args:
+            graph: NetworkX graph to export
+            output_path: Path for output file
+            format: Export format
+
+        Raises:
+            ValueError: If format is not supported
+        """
+        if format == 'pickle':
+            with open(output_path, 'wb') as f:
+                pickle.dump(graph, f)
+        elif format in cls.SUPPORTED_FORMATS:
+            cls.SUPPORTED_FORMATS[format](graph, output_path)
+        else:
+            raise ValueError(
+                f"Unsupported format. Choose from: {', '.join(cls.SUPPORTED_FORMATS)}"
+                f", pickle"
+            )
+
 
 def main():
+    """Main execution function."""
     parser = argparse.ArgumentParser(
-        description="Build a citation network from a subset of papers and export it to a specified format.")
-    parser.add_argument('subset_directory', type=str, help="The directory containing the subset JSONL files.")
-    parser.add_argument('output_path', type=str, help="The path to save the exported network.")
-    parser.add_argument('--format', type=str, default='gexf',
-                        choices=['gexf', 'graphml', 'edgelist', 'adjlist', 'pickle'],
-                        help="The format to export the network ('gexf', 'graphml', 'edgelist', 'adjlist', 'pickle'). Default is 'gexf'.")
-    parser.add_argument('--remove_empty_nodes', action='store_true', help="Remove nodes without title, year, or references.")
+        description="Build and export citation networks from paper data."
+    )
+    parser.add_argument(
+        'subset_directory',
+        type=str,
+        help="Directory containing JSONL files"
+    )
+    parser.add_argument(
+        'output_path',
+        type=str,
+        help="Path for exported network"
+    )
+    parser.add_argument(
+        '--format',
+        type=str,
+        default='gexf',
+        choices=['gexf', 'graphml', 'edgelist', 'adjlist', 'pickle'],
+        help="Export format (default: gexf)"
+    )
+    parser.add_argument(
+        '--remove_empty_nodes',
+        action='store_true',
+        help="Remove incomplete entries"
+    )
 
     args = parser.parse_args()
 
-    G = build_citation_network(args.subset_directory, args.remove_empty_nodes)
-    export_network(G, args.output_path, args.format)
+    try:
+        # Build network
+        builder = CitationNetworkBuilder(args.remove_empty_nodes)
+        network = builder.build_from_directory(args.subset_directory)
+
+        # Export network
+        NetworkExporter.export(network, args.output_path, args.format)
+
+        # Print statistics
+        print("\nNetwork Statistics:")
+        print(f"Nodes: {network.number_of_nodes()}")
+        print(f"Edges: {network.number_of_edges()}")
+        print(f"Network saved to: {args.output_path}")
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return 1
+
+    return 0
+
 
 if __name__ == "__main__":
     main()

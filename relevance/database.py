@@ -1,358 +1,320 @@
-from urllib.parse import urlparse
+"""
+Academic Paper Database Management System
+======================================
 
-import requests
-import sqlite3
+This module implements a SQLite-based database system for managing academic papers,
+their sections, and external references.
+
+Features:
+---------
+- Paper metadata storage
+- Section management
+- External URI tracking
+- Reference status verification
+- Paper ID normalization
+- Batch processing capabilities
+
+Schema:
+-------
+- sections: Stores paper sections
+- external_uris: Stores and tracks external references
+
+Required Dependencies:
+--------------------
+- sqlite3
+- requests
+- urllib3
+- networkx
+"""
+
 import os
-import networkx as nx
+import sqlite3
+from typing import Set, Dict, Any
+import requests
 import urllib3
+from urllib.parse import urlparse
+import networkx as nx
 
 
 class Database:
-    def __init__(self):
+    """
+    Manages academic paper data storage and retrieval.
+    """
+
+    def __init__(self, base_dir: str = 'tmpdata'):
         """
-        Initialize the Database class.
+        Initialize database.
+
+        Args:
+            base_dir: Base directory for database storage
         """
-        self.tmpdata_dir = 'tmpdata'
+        self.tmpdata_dir = base_dir
         self.db_path = os.path.join(self.tmpdata_dir, 'database_transmission.sqlite')
         os.makedirs(self.tmpdata_dir, exist_ok=True)
+        self.create_schema()
 
-    def transform_id(self, paper_id):
-        paper_split = paper_id.split('.')
-        if len(paper_split) == 2:
-            while len(paper_split[0]) < 3:
-                paper_split[0] = '0' + paper_split[1]
-            while len(paper_split[1]) < 5:
-                paper_split[1] = paper_split[1] + '0'
-            return '.'.join(paper_split)
-        return paper_id
+    def create_schema(self) -> None:
+        """Create database tables and schema."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-    def transform_all_paper_ids(self):
+            # Sections table
+            cursor.execute('''
+                           CREATE TABLE IF NOT EXISTS sections (
+                                                                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                                                   paper_id TEXT NOT NULL,
+                                                                   section_title TEXT NOT NULL
+                           )
+                           ''')
+
+            # External URIs table
+            cursor.execute('''
+                           CREATE TABLE IF NOT EXISTS external_uris (
+                                                                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                                                        section_id INTEGER NOT NULL,
+                                                                        uri TEXT NOT NULL,
+                                                                        is_alive BOOLEAN NOT NULL,
+                                                                        FOREIGN KEY (section_id) REFERENCES sections (id)
+                               )
+                           ''')
+
+    def transform_id(self, paper_id: str) -> str:
         """
-        Transforms all paper_ids in the database to the specified format.
-        """
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
+        Normalize paper ID format.
 
-        cursor.execute('SELECT DISTINCT paper_id FROM sections')
-        paper_ids = cursor.fetchall()
-
-        for (paper_id,) in paper_ids:
-            if '.' in paper_id:
-                left, right = paper_id.split('.')
-                while right[0] == '0':
-                    right = right[1:]
-                if len(left) < 4:
-                    left = left.zfill(4)
-                if len(right) < 5:
-                    right = right.ljust(5, '0')
-                new_name = f"{left}.{right}"
-
-                cursor.execute('''
-                    UPDATE sections
-                    SET paper_id = ?
-                    WHERE paper_id = ?
-                ''', (new_name, paper_id))
-
-        connection.commit()
-        connection.close()
-
-    def create_schema(self):
-        """
-        Create the database schema with tables 'sections' and 'external_uris'.
-        """
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
-
-        # Create the 'sections' table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS sections (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                paper_id TEXT NOT NULL,
-                section_title TEXT NOT NULL
-            )
-        ''')
-
-        # Create the 'external_uris' table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS external_uris (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                section_id INTEGER NOT NULL,
-                uri TEXT NOT NULL,
-                is_alive BOOLEAN NOT NULL,
-                FOREIGN KEY (section_id) REFERENCES sections (id)
-            )
-        ''')
-
-        connection.commit()
-        connection.close()
-
-    def get_existing_paper_ids(self, remove_last=False):
-        """
-        Get a set of existing paper_ids from the database.
+        Args:
+            paper_id: Original paper ID
 
         Returns:
-        set: A set of existing paper_ids.
+            Normalized paper ID
         """
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
+        parts = paper_id.split('.')
+        if len(parts) != 2:
+            return paper_id
 
-        cursor.execute('SELECT DISTINCT paper_id FROM sections ORDER BY id ASC')
-        if remove_last:
-            existing_paper_ids = {str(row[0]) for row in cursor.fetchall()[:-1]}
-        else:
-            existing_paper_ids = {str(row[0]) for row in cursor.fetchall()}
+        left, right = parts
+        # Pad numbers
+        left = left.zfill(4)
+        right = right.rjust(5, '0')
 
-        connection.close()
-        return existing_paper_ids
+        return f"{left}.{right}"
 
-    def count_total_articles(self):
+    def transform_all_paper_ids(self) -> None:
+        """Transform all paper IDs in database to normalized format."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            # Get all paper IDs
+            cursor.execute('SELECT DISTINCT paper_id FROM sections')
+            paper_ids = cursor.fetchall()
+
+            # Transform each ID
+            for (paper_id,) in paper_ids:
+                new_id = self.transform_id(paper_id)
+                if new_id != paper_id:
+                    cursor.execute('''
+                                   UPDATE sections
+                                   SET paper_id = ?
+                                   WHERE paper_id = ?
+                                   ''', (new_id, paper_id))
+
+    def is_uri_alive(self, uri: str) -> bool:
         """
-        Count the number of articles in the database.
+        Check if URI is accessible.
+
+        Args:
+            uri: URI to check
 
         Returns:
-        int: The number of articles.
+            True if URI is accessible, False otherwise
         """
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
-
-        cursor.execute('SELECT COUNT(DISTINCT paper_id) FROM sections')
-        count = cursor.fetchone()[0]
-
-        connection.close()
-        return count
-
-    def is_uri_alive(self, uri):
         try:
-            # Validate the URI
+            # Validate URI format
             result = urlparse(uri)
             if not all([result.scheme, result.netloc]):
                 return False
 
-            response = requests.head(uri, allow_redirects=True, timeout=15)
+            # Check URI accessibility
+            response = requests.head(
+                uri,
+                allow_redirects=True,
+                timeout=15
+            )
             return response.status_code in [200, 301, 302, 418]
-        except requests.RequestException:
+
+        except (requests.RequestException, urllib3.exceptions.LocationParseError):
             return False
-        except urllib3.exceptions.LocationParseError:
-            return False
 
-    def populate_database(self, graph):
+    def populate_database(self, graph: nx.Graph) -> None:
         """
-        Populate the database with data from the graph.
+        Populate database from graph data.
 
-        Parameters:
-        graph (networkx.Graph): The graph containing the data.
+        Args:
+            graph: NetworkX graph containing paper data
         """
+        existing_ids = self.get_existing_paper_ids(remove_last=True)
+        processed = 0
 
-
-        existing_paper_ids = self.get_existing_paper_ids(remove_last=True)
-
-        article_count = 0
-
-        for index, (node, data) in enumerate(graph.nodes(data=True)):
-            if node in existing_paper_ids:
-                article_count += 1
+        for node, data in graph.nodes(data=True):
+            if node in existing_ids:
+                processed += 1
                 continue
 
-            connection = sqlite3.connect(self.db_path)
-            cursor = connection.cursor()
-            paper_id = node
-            sections = data.get('sections', [])
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
 
-            for section in sections:
-                section_title = section.get('section_name', '')
-
-                # Assign a default title if section_title is empty
-                if not section_title:
-                    section_title = "unnamed"
-
-                # Check if the section already exists
-                cursor.execute('''
-                    SELECT id FROM sections WHERE paper_id = ? AND section_title = ?
-                ''', (paper_id, section_title))
-                is_exists = cursor.fetchone()
-
-                if not is_exists:
+                for section in data.get('sections', []):
+                    # Insert section
+                    section_title = section.get('section_name') or "unnamed"
                     cursor.execute('''
-                        INSERT INTO sections (paper_id, section_title)
-                        VALUES (?, ?)
-                    ''', (paper_id, section_title))
+                                   INSERT INTO sections (paper_id, section_title)
+                                   VALUES (?, ?)
+                                   ''', (node, section_title))
                     section_id = cursor.lastrowid
 
-                    external_uris = section.get('external_uris', [])
-                    for uri in external_uris:
-                        # Skip URIs that are NULL or empty
+                    # Insert URIs
+                    for uri in section.get('external_uris', []):
                         if not uri:
                             continue
 
                         is_alive = self.is_uri_alive(uri)
-
-                        # Check if the URI already exists
                         cursor.execute('''
-                            SELECT id FROM external_uris WHERE section_id = ? AND uri = ?
-                        ''', (section_id, uri))
-                        uri_row = cursor.fetchone()
+                                       INSERT INTO external_uris (section_id, uri, is_alive)
+                                       VALUES (?, ?, ?)
+                                       ''', (section_id, uri, is_alive))
 
-                        if not uri_row:
-                            cursor.execute('''
-                                INSERT INTO external_uris (section_id, uri, is_alive)
-                                VALUES (?, ?, ?)
-                            ''', (section_id, uri, is_alive))
-            connection.commit()
-            connection.close()
+            processed += 1
+            if processed % 1000 == 0:
+                print(f"Processed {processed} articles")
 
-            article_count += 1
-            if article_count % 1000 == 0:
-                print(f"Processed {article_count} articles.")
-
-    def is_paper_affected(self, paper_id):
+    def get_paper_affectation(self, paper_id: str) -> Dict[str, Dict[str, bool]]:
         """
-        Check if any of the references in any section of the paper are not alive.
+        Get paper's sections and their reference status.
 
-        Parameters:
-        paper_id (str): The ID of the paper.
+        Args:
+            paper_id: Paper ID
 
         Returns:
-        bool: True if any reference is not alive, False otherwise.
+            Dictionary of sections and their references
         """
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        cursor.execute('''
-            SELECT external_uris.is_alive
-            FROM sections
-            JOIN external_uris ON sections.id = external_uris.section_id
-            WHERE sections.paper_id = ?
-        ''', (paper_id,))
-        rows = cursor.fetchall()
+            cursor.execute('''
+                           SELECT
+                               sections.section_title,
+                               external_uris.uri,
+                               external_uris.is_alive
+                           FROM sections
+                                    JOIN external_uris ON sections.id = external_uris.section_id
+                           WHERE sections.paper_id = ?
+                           ''', (paper_id,))
 
-        connection.close()
+            results = {}
+            for title, uri, status in cursor.fetchall():
+                if title not in results:
+                    results[title] = {}
+                results[title][uri] = status
 
-        return any(not is_alive for (is_alive,) in rows)
+            return results
 
-    def get_paper_affectation(self, paper_id):
+    def get_all_affected_papers(self) -> Set[str]:
         """
-        Get a dictionary of sections of the paper, and for each section, a dictionary of references and their is_alive status.
-
-        Parameters:
-        paper_id (str): The ID of the paper.
+        Get papers with dead references.
 
         Returns:
-        dict: A dictionary of sections and their references with is_alive status.
+            Set of affected paper IDs
         """
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        cursor.execute('''
-            SELECT sections.section_title, external_uris.uri, external_uris.is_alive
-            FROM sections
-            JOIN external_uris ON sections.id = external_uris.section_id
-            WHERE sections.paper_id = ?
-        ''', (paper_id,))
-        rows = cursor.fetchall()
+            cursor.execute('''
+                           SELECT DISTINCT sections.paper_id
+                           FROM sections
+                                    JOIN external_uris ON sections.id = external_uris.section_id
+                           WHERE external_uris.is_alive = 0
+                              OR external_uris.is_alive IS NULL
+                           ''')
 
-        connection.close()
+            return {row[0] for row in cursor.fetchall()}
 
-        paper_affectation = {}
-        for section_title, uri, is_alive in rows:
-            if section_title not in paper_affectation:
-                paper_affectation[section_title] = {}
-            paper_affectation[section_title][uri] = is_alive
-
-        return paper_affectation
-
-    def get_all_affected_papers(self):
+    def count_citing_papers(self,
+                            count_only_all_alive_references: bool = False,
+                            count_only_all_dead_references: bool = False) -> int:
         """
-        Get a set of IDs of affected nodes (where is_alive is False or null).
+        Count papers based on reference status.
+
+        Args:
+            count_only_all_alive_references: Count papers with all references alive
+            count_only_all_dead_references: Count papers with any dead references
 
         Returns:
-        set: A set of IDs of affected nodes.
+            Number of papers matching criteria
         """
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        cursor.execute('''
-            SELECT DISTINCT sections.paper_id
-            FROM sections
-            JOIN external_uris ON sections.id = external_uris.section_id
-            WHERE external_uris.is_alive = 0 OR external_uris.is_alive IS NULL
-        ''')
-        rows = cursor.fetchall()
+            if count_only_all_alive_references:
+                query = '''
+                        SELECT COUNT(DISTINCT s.paper_id)
+                        FROM sections s
+                                 JOIN external_uris e ON s.id = e.section_id
+                        GROUP BY s.paper_id
+                        HAVING SUM(CASE WHEN e.is_alive = 0
+                            OR e.is_alive IS NULL
+                                            THEN 1 ELSE 0 END) = 0 \
+                        '''
+            elif count_only_all_dead_references:
+                query = '''
+                        SELECT COUNT(DISTINCT s.paper_id)
+                        FROM sections s
+                                 JOIN external_uris e ON s.id = e.section_id
+                        GROUP BY s.paper_id
+                        HAVING SUM(CASE WHEN e.is_alive = 0
+                            OR e.is_alive IS NULL
+                                            THEN 1 ELSE 0 END) > 0 \
+                        '''
+            else:
+                query = '''
+                        SELECT COUNT(DISTINCT s.paper_id)
+                        FROM sections s
+                                 JOIN external_uris e ON s.id = e.section_id \
+                        '''
 
-        connection.close()
+            cursor.execute(query)
+            return cursor.fetchone()[0] or 0
 
-        return {row[0] for row in rows}
-
-    def get_all_references(self, paper_id):
+    def get_statistics(self) -> Dict[str, Any]:
         """
-        Get all references for a given paper_id.
-
-        Parameters:
-        paper_id (str): The ID of the paper.
+        Get database statistics.
 
         Returns:
-        list: A list of references for the given paper_id.
+            Dictionary of statistics
         """
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
+        return {
+            'total_papers': self.count_total_articles(),
+            'affected_papers': len(self.get_all_affected_papers()),
+            'citing_papers': self.count_citing_papers(),
+            'papers_all_alive': self.count_citing_papers(
+                count_only_all_alive_references=True
+            ),
+            'papers_any_dead': self.count_citing_papers(
+                count_only_all_dead_references=True
+            )
+        }
 
-        cursor.execute('''
-            SELECT external_uris.uri
-            FROM sections
-            JOIN external_uris ON sections.id = external_uris.section_id
-            WHERE sections.paper_id = ?
-        ''', (paper_id,))
-        rows = cursor.fetchall()
 
-        connection.close()
+def main():
+    """Example usage of the database system."""
+    # Initialize database
+    db = Database()
 
-        return [row[0] for row in rows]
+    # Print statistics
+    stats = db.get_statistics()
+    print("\nDatabase Statistics:")
+    for key, value in stats.items():
+        print(f"{key}: {value}")
 
-    def _count_citing_papers(self, query):
-        """
-        Cuenta el número total de papers que citan (tienen una external_uri).
 
-        Returns:
-        int: El número total de papers que citan.
-        """
-        connection = sqlite3.connect(self.db_path)
-        cursor = connection.cursor()
-
-        # Contar el número de papers que tienen una external_uri enlazando con sections y papers
-        cursor.execute('''
-            SELECT COUNT(DISTINCT s.paper_id)
-            FROM SECTIONS s JOIN EXTERNAL_URIS e ON s.id = e.section_id
-        ''')
-        citing_papers_count = cursor.fetchone()[0]
-
-        connection.close()
-        return citing_papers_count
-
-    def count_citing_papers(self, count_only_all_alive_references=False, count_only_all_dead_references=False):
-        if count_only_all_alive_references:
-            query = '''
-                SELECT COUNT(DISTINCT s.paper_id)
-                FROM sections s
-                JOIN external_uris e ON s.id = e.section_id
-                GROUP BY s.paper_id
-                HAVING SUM(CASE WHEN e.is_alive = 0 OR e.is_alive IS NULL THEN 1 ELSE 0 END) = 0
-            '''
-        elif count_only_all_dead_references:
-            query = '''
-                SELECT COUNT(DISTINCT s.paper_id)
-                FROM sections s
-                JOIN external_uris e ON s.id = e.section_id
-                GROUP BY s.paper_id
-                HAVING SUM(CASE WHEN e.is_alive = 0 OR e.is_alive IS NULL THEN 1 ELSE 0 END) > 0
-            '''
-        else:
-            query = '''
-            SELECT COUNT(DISTINCT s.paper_id)
-            FROM SECTIONS s 
-            JOIN EXTERNAL_URIS e ON s.id = e.section_id
-            '''
-
-        return self._count_citing_papers(query)
-
-    def get_db_path(self):
-        return self.db_path
-
+if __name__ == "__main__":
+    main()

@@ -1,149 +1,179 @@
-import argparse
+"""
+Citation Network Analysis Tool
+============================
+
+This tool analyzes citation networks to understand influence propagation patterns and identify key articles
+in academic literature. It processes a NetworkX graph containing citation relationships and transmission
+values to generate three types of analyses:
+
+1. Propagation Analysis: Shows how influence spreads through citation levels
+2. Threshold Sensitivity: Examines how different threshold values affect top influential papers
+3. Super-spreader Detection: Identifies papers with unusual influence relative to their citations
+
+Input Requirements:
+- NetworkX graph stored in pickle format
+- Nodes must have 'transmission_value' attribute containing a dictionary of threshold values
+- Graph edges should represent citation relationships
+
+Output:
+- Multiple visualizations showing different aspects of influence propagation
+- Console output with detailed statistics
+- Interactive plots for data exploration
+
+Dependencies:
+- NetworkX: Graph processing
+- Matplotlib: Visualization
+- NumPy: Numerical operations
+"""
+
+import pickle
+import matplotlib
 import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 
-from models.abstract_tr import TrModel
-from relevance.database import Database
-from transmission.affectation_transmission_model import AffectationTransmissionModel
+# Set matplotlib backend for GUI integration
+matplotlib.use('TkAgg')
 
-def plot_affected_by_level(graph, threshold):
+# Load the citation network from pickle file
+with open("./output/unarXive_230324_open_subset__text_arxiv_only.pickle", "rb") as f:
+    G = pickle.load(f)
+
+# Extract threshold values from the first node's transmission values
+# These thresholds represent different levels of influence strength
+thresholds = sorted(next(iter(nx.get_node_attributes(G, 'transmission_value').values())).keys())
+
+
+# -----------------------------------------------
+# 1. Propagation Level Analysis
+# -----------------------------------------------
+def affected_by_level(graph, threshold):
+    """
+    Calculate the number of affected articles at each propagation level.
+
+    Args:
+        graph (nx.Graph): Citation network graph where:
+            - Nodes represent academic articles
+            - Edges represent citations between articles
+        threshold (float): Minimum transmission value to consider an article affected
+
+    Returns:
+        dict: Maps propagation levels to count of affected articles
+            - Keys: Level numbers (int, starting from 0)
+            - Values: Number of articles affected at that level
+
+    Example:
+        >>> counts = affected_by_level(citation_graph, 0.5)
+        >>> print(counts)
+        {0: 10, 1: 25, 2: 15}  # 10 articles at level 0, 25 at level 1, etc.
+    """
+    # Find articles affected above the threshold
     affected_nodes = {n for n, d in graph.nodes(data=True)
                       if d.get('transmission_value', {}).get(threshold, 0) > 0}
-    level_counts = {}
-    visited = set()
-    current_level = affected_nodes
 
+    # Initialize tracking variables
+    level_counts = {}  # Stores count of affected articles per level
+    visited = set()  # Tracks processed articles
+    current_level = affected_nodes  # Articles at current propagation level
+
+    # Process each level until no more affected articles are found
     level = 0
     while current_level:
+        # Record count of articles at current level
         level_counts[level] = len(current_level)
+
+        # Mark current articles as visited
         visited.update(current_level)
+
+        # Find affected articles in the next level
         next_level = set()
         for node in current_level:
+            # Check all articles that cite the current article
             for desc in nx.descendants(graph, node):
+                # Include only unvisited articles above threshold
                 if desc not in visited and graph.nodes[desc].get('transmission_value', {}).get(threshold, 0) > 0:
                     next_level.add(desc)
+
         current_level = next_level
         level += 1
 
-    levels = list(level_counts.keys())
-    values = list(level_counts.values())
-    plt.figure()
-    plt.plot(levels, values, marker='o')
-    plt.xlabel("Propagation level")
-    plt.ylabel("Affected articles")
-    plt.title(f"Affected articles per level (threshold {threshold})")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(f"affected_by_level_t{threshold}.png")
-    plt.close()
+    return level_counts
 
-def plot_threshold_sensitivity(graph, thresholds, top_n=10):
-    transmission_by_node = {
-        node: data.get('transmission_value', {}) for node, data in graph.nodes(data=True)
-    }
-    avg_values = {node: np.mean(list(v.values())) for node, v in transmission_by_node.items() if v}
-    top_nodes = sorted(avg_values, key=avg_values.get, reverse=True)[:top_n]
 
-    plt.figure()
-    for node in top_nodes:
-        values = [transmission_by_node[node].get(t, 0) for t in thresholds]
-        plt.plot(thresholds, values, label=f"Node {node}")
-    plt.xlabel("Threshold")
-    plt.ylabel("Transmission value")
-    plt.title("Threshold sensitivity for top affected nodes")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig("threshold_sensitivity.png")
-    plt.close()
+# Generate and display propagation statistics for each threshold
+for t in thresholds:
+    counts = affected_by_level(G, t)
+    print(f"Threshold {t}: {counts}")
 
-def plot_super_spreaders(graph):
-    avg_transmission = {
-        node: np.mean(list(data.get('transmission_value', {}).values()))
-        for node, data in graph.nodes(data=True) if data.get('transmission_value', {})
-    }
-    out_degrees = dict(graph.out_degree())
+# Visualize propagation patterns
+plt.figure()
+for t in thresholds:
+    counts = affected_by_level(G, t)
+    levels = list(counts.keys())
+    values = list(counts.values())
+    plt.plot(levels, values, label=f"Threshold {t:.1f}")
+plt.xlabel("Propagation Level (Steps from Source)")
+plt.ylabel("Number of Affected Articles")
+plt.title("Influence Propagation Through Citation Network")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
 
-    x = [out_degrees[n] for n in avg_transmission.keys()]
-    y = [avg_transmission[n] for n in avg_transmission.keys()]
+# -----------------------------------------------
+# 2. Threshold Sensitivity Analysis
+# -----------------------------------------------
+# Number of top articles to analyze
+top_n = 10
 
-    plt.figure()
-    plt.scatter(x, y, alpha=0.6)
-    plt.xlabel("Out-degree")
-    plt.ylabel("Avg. transmission value")
-    plt.title("Super-spreaders detection")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig("super_spreaders.png")
-    plt.close()
+# Calculate average transmission values for all articles
+transmission_by_node = {
+    node: data.get('transmission_value', {})
+    for node, data in G.nodes(data=True)
+}
+avg_values = {
+    node: np.mean(list(v.values()))
+    for node, v in transmission_by_node.items()
+}
 
-def main():
-    parser = argparse.ArgumentParser(description="Transmission models for citation network.")
-    parser.add_argument('pickle_path', type=str, help="The path to the pickle file containing the graph.")
-    parser.add_argument('-s', action='store_true', dest='by_section', help="Analyze by sections.")
-    parser.add_argument('-t', dest='thresholds', type=float, nargs='+',
-                        default=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
-                        help="List of thresholds to process.")
+# Identify the most influential articles
+top_nodes = sorted(avg_values, key=avg_values.get, reverse=True)[:top_n]
 
-    args = parser.parse_args()
+# Visualize threshold sensitivity for top articles
+plt.figure()
+for node in top_nodes:
+    values = [transmission_by_node[node].get(t, 0) for t in thresholds]
+    plt.plot(thresholds, values, label=f"Article {node}")
+plt.xlabel("Influence Threshold")
+plt.ylabel("Transmission Value")
+plt.title("Influence Stability Analysis of Top Articles")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
 
-    db = Database()
-    tr_model = TrModel(db)
-    tr_model.load_graph(args.pickle_path)
-    graph = tr_model.get_graph()
-    if not graph.is_directed():
-        graph = nx.DiGraph(graph)
+# -----------------------------------------------
+# 3. Super-spreader Analysis
+# -----------------------------------------------
+# Calculate average transmission value for each article
+avg_transmission = {
+    node: np.mean(list(data.get('transmission_value', {}).values()))
+    for node, data in G.nodes(data=True)
+}
 
-    affected_nodes = tr_model.get_affected_nodes()
-    affected_levels = tr_model.count_affected_levels(affected_nodes)
-    print("Number of affected nodes at each level:")
-    for level, node_count in affected_levels.items():
-        print(f"Level {level}: {node_count}")
+# Get citation counts (out-degree) for each article
+out_degrees = dict(G.out_degree())
 
-    section_weights = {
-        "Introduction": 0.15,
-        "Methodology": 0.30,
-        "Results": 0.30,
-        "Discussions/Conclusions": 0.25
-    }
+# Prepare data for scatter plot
+x = [out_degrees[n] for n in G.nodes()]
+y = [avg_transmission[n] for n in G.nodes()]
 
-    for t in args.thresholds:
-        model = AffectationTransmissionModel(graph, db)
-        model.remove_back_edges()
-
-        pending_nodes = []
-        for node in graph.nodes:
-            node_value = model.compute_affectation_transmitted(node, section_weights, t, by_section=args.by_section)
-            if node_value > 0:
-                pending_nodes.append(node)
-
-        affectation_transmission = model.get_affectation_transmission_dict()
-        print(f"Threshold: {t}")
-        print(f"Affected articles: {len(affectation_transmission)}")
-
-        level = 0
-        while pending_nodes:
-            target_nodes = pending_nodes
-            print(f"Level {level}: {len(target_nodes)}")
-            pending_nodes = []
-            for node in target_nodes:
-                descendants = list(nx.descendants(graph, node))
-                affected_descendants = [desc for desc in descendants if affectation_transmission.get(desc, False)]
-                pending_nodes.extend(affected_descendants)
-            level += 1
-
-        for node in graph.nodes:
-            graph.nodes[node].setdefault('transmission_value', {})[t] = affectation_transmission.get(node, 0)
-
-        # Visualización por nivel para cada umbral
-        plot_affected_by_level(graph, t)
-
-    # Visualización general
-    plot_threshold_sensitivity(graph, args.thresholds)
-    plot_super_spreaders(graph)
-
-    tr_model.save_graph(args.pickle_path)
-
-if __name__ == "__main__":
-    main()
+# Create visualization of super-spreader characteristics
+plt.figure()
+plt.scatter(x, y, alpha=0.6)
+plt.xlabel("Citations Made (Out-degree)")
+plt.ylabel("Average Influence Value")
+plt.title("Super-spreader Detection: Citation Count vs Influence")
+plt.grid(True)
+plt.tight_layout()
+plt.show()

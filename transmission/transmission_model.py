@@ -1,7 +1,7 @@
 import pickle
 
 
-class TrModel():
+class TransmissionModel:
 
     def __init__(self, db):
         """
