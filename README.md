@@ -153,4 +153,7 @@ This project is licensed under the GNU General Public License v3.0 (GPLv3).
 
 If you use this tool in your research, please cite:
 
-[Add citation information here]
+````
+
+Chamorro Padial, Jorge; Rodrigo-Ginés, Francisco-Javier; Rodríguez Sánchez, Rosa María; Gil Iranzo, Rosa Maria; García González, Roberto, 2025, "Scripts for: The economics of lost knowledge: modeling the knowledge cost due to non-FAIR data practices", https://doi.org/10.34810/data2383, CORA.Repositori de Dades de Recerca
+````
