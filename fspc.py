@@ -2,7 +2,7 @@
 FSPC Analysis Tool
 =================
 
-This module implements Forward Scholarly Propagation Centrality analysis for
+This module implements Forward Search Path Count analysis for
 citation networks, including propagation modeling and visualization tools.
 
 Features:
@@ -33,7 +33,7 @@ from typing import Dict, Set, Tuple, List, Any, Optional
 
 
 class FSPCAnalyzer:
-    """Analyzer for Forward Scholarly Propagation Centrality."""
+    """Analyzer for Forward Search Path Count."""
 
     def __init__(self, graph: nx.DiGraph):
         """

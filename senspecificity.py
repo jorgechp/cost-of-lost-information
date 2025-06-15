@@ -1,5 +1,5 @@
 """
-Citation Network Sensitivity Analysis Tool
+Citation Network Sensitivity and Specificity Analysis Tool
 =======================================
 
 This tool analyzes citation networks to evaluate knowledge generation and information preservation
@@ -29,7 +29,7 @@ import networkx as nx
 
 from transmission.transmission_model import TransmissionModel
 from relevance.database import Database
-from senspecificty.senspecificy_model import SpecificitySensitivityModel
+from senspecificity.senspecificy_model import SpecificitySensitivityModel
 
 
 def fill_nodes_information(graph, history, beta, gamma, delta):
